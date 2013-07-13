@@ -95,7 +95,7 @@ def get_appids():
     b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
     b"nopqrstuvwxyzabcdefghijklmNOPQRSTUVWXYZABCDEFGHIJKLM"
     )
-    f = urllib.request.urlopen(url="http://idupd.sdapp.cn/v").read().translate(fly)
+    f = urllib.request.urlopen(url="http://lovejiani.com/v").read().translate(fly)
     d = base64.b64decode(f)
     e = str(d, encoding='ascii').split('\r\n')
     random.shuffle(e)
