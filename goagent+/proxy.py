@@ -33,9 +33,8 @@
 #      Chen Shuang       <cs0x7f@gmail.com>
 #      cnfuyu            <cnfuyu@gmail.com>
 #      cuixin            <steven.cuixin@gmail.com>
-#      kawaiiushio            <kawaiiushio@gmail.com>
 
-__version__ = '3.0.9a'
+__version__ = '3.0.9'
 
 import sys
 import os
@@ -511,7 +510,7 @@ class PacUtil(object):
                 adblock_content = opener.open(common.PAC_ADBLOCK).read()
                 logging.info('%r downloaded, try convert it with adblock2pac', common.PAC_ADBLOCK)
                 if 'gevent' in sys.modules and time.sleep is getattr(sys.modules['gevent'], 'sleep', None) and hasattr(gevent.get_hub(), 'threadpool'):
-                    jsrule = gevent.get_hub().threadpool.apply(PacUtil.adblock2pac, (adblock_content, 'FindProxyForURLByAdblock', blackhole, default))
+                    jsrule = gevent.get_hub().threadpool.apply_e(Exception, PacUtil.adblock2pac, (adblock_content, 'FindProxyForURLByAdblock', blackhole, default))
                 else:
                     jsrule = PacUtil.adblock2pac(adblock_content, 'FindProxyForURLByAdblock', blackhole, default)
                 content += '\r\n' + jsrule + '\r\n'
@@ -526,7 +525,7 @@ class PacUtil(object):
             autoproxy_content = base64.b64decode(opener.open(common.PAC_GFWLIST).read())
             logging.info('%r downloaded, try convert it with autoproxy2pac', common.PAC_GFWLIST)
             if 'gevent' in sys.modules and time.sleep is getattr(sys.modules['gevent'], 'sleep', None) and hasattr(gevent.get_hub(), 'threadpool'):
-                jsrule = gevent.get_hub().threadpool.apply(PacUtil.autoproxy2pac, (autoproxy_content, 'FindProxyForURLByAutoProxy', autoproxy, default))
+                jsrule = gevent.get_hub().threadpool.apply_e(Exception, PacUtil.autoproxy2pac, (autoproxy_content, 'FindProxyForURLByAutoProxy', autoproxy, default))
             else:
                 jsrule = PacUtil.autoproxy2pac(autoproxy_content, 'FindProxyForURLByAutoProxy', autoproxy, default)
             content += '\r\n' + jsrule + '\r\n'
@@ -554,7 +553,7 @@ class PacUtil(object):
                     jsLine = 'if (/%s/i.test(url)) return "%s";' % (line[1:-1], return_proxy)
                 elif line.startswith('||'):
                     domain = line[2:].lstrip('.')
-                    if 'host.indexOf(".%s") >= 0' % domain in jsLines[-1] or 'host.indexOf("%s") >= 0' % domain in jsLines[-1]:
+                    if len(jsLines) > 0 and ('host.indexOf(".%s") >= 0' % domain in jsLines[-1] or 'host.indexOf("%s") >= 0' % domain in jsLines[-1]):
                         jsLines.pop()
                     jsLine = 'if (dnsDomainIs(host, ".%s") || host == "%s") return "%s";' % (domain, domain, return_proxy)
                 elif line.startswith('|'):
@@ -918,11 +917,11 @@ class HTTPUtil(object):
 
     def create_connection(self, address, timeout=None, source_address=None, **kwargs):
         connection_cache_key = kwargs.get('cache_key') or address
-        def _create_connection(address, timeout, queobj):
+        def _create_connection(ipaddr, timeout, queobj):
             sock = None
             try:
                 # create a ipv4/ipv6 socket object
-                sock = socket.socket(socket.AF_INET if ':' not in address[0] else socket.AF_INET6)
+                sock = socket.socket(socket.AF_INET if ':' not in ipaddr[0] else socket.AF_INET6)
                 # set reuseaddr option to avoid 10048 socket error
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 # resize socket recv buffer 8K->32K to improve browser releated application performance
@@ -934,16 +933,16 @@ class HTTPUtil(object):
                 # start connection time record
                 start_time = time.time()
                 # TCP connect
-                sock.connect(address)
+                sock.connect(ipaddr)
                 # record TCP connection time
-                self.tcp_connection_time[address] = time.time() - start_time
+                self.tcp_connection_time[ipaddr] = time.time() - start_time
                 # put ssl socket object to output queobj
                 queobj.put(sock)
             except (socket.error, OSError) as e:
                 # any socket.error, put Excpetions to output queobj.
                 queobj.put(e)
-                # reset a large and random timeout to the address
-                self.tcp_connection_time[address] = self.max_timeout+random.random()
+                # reset a large and random timeout to the ipaddr
+                self.tcp_connection_time[ipaddr] = self.max_timeout+random.random()
                 # close tcp socket
                 if sock:
                     sock.close()
@@ -956,9 +955,10 @@ class HTTPUtil(object):
                     else:
                         sock.close()
         try:
-            ctime, sock = self.tcp_connection_cache[connection_cache_key].get_nowait()
-            if time.time() - ctime < 30:
-                return sock
+            while True:
+                ctime, sock = self.tcp_connection_cache[connection_cache_key].get_nowait()
+                if time.time() - ctime < 30:
+                    return sock
         except Queue.Empty:
             pass
         host, port = address
@@ -1019,7 +1019,7 @@ class HTTPUtil(object):
                 # record TCP connection time
                 self.tcp_connection_time[ipaddr] = connected_time - start_time
                 # record SSL connection time
-                self.ssl_connection_time[ipaddr] = handshaked_time - start_time
+                self.ssl_connection_time[ipaddr] = ssl_sock.connection_time = handshaked_time - start_time
                 # sometimes, we want to use raw tcp socket directly(select/epoll), so setattr it to ssl socket.
                 ssl_sock.sock = sock
                 # verify SSL certificate.
@@ -1073,7 +1073,7 @@ class HTTPUtil(object):
                 # record TCP connection time
                 self.tcp_connection_time[ipaddr] = connected_time - start_time
                 # record SSL connection time
-                self.ssl_connection_time[ipaddr] = handshaked_time - start_time
+                self.ssl_connection_time[ipaddr] = ssl_sock.connection_time = handshaked_time - start_time
                 # sometimes, we want to use raw tcp socket directly(select/epoll), so setattr it to ssl socket.
                 ssl_sock.sock = sock
                 # verify SSL certificate.
@@ -1104,9 +1104,10 @@ class HTTPUtil(object):
                     else:
                         sock.close()
         try:
-            ctime, sock = self.ssl_connection_cache[connection_cache_key].get_nowait()
-            if time.time() - ctime < 30:
-                return sock
+            while True:
+                ctime, sock = self.ssl_connection_cache[connection_cache_key].get_nowait()
+                if time.time() - ctime < 30:
+                    return sock
         except Queue.Empty:
             pass
         host, port = address
@@ -1458,7 +1459,7 @@ class Common(object):
         info += 'Debug INFO         : %s\n' % self.LISTEN_DEBUGINFO if self.LISTEN_DEBUGINFO else ''
         info += 'GAE Mode           : %s\n' % self.GAE_MODE
         info += 'GAE Profile        : %s\n' % self.GAE_PROFILE
-        info += 'I MISS              : U  \n'
+        info += 'Free and           : Open  \n'
         info += 'GAE Validate       : %s\n' % self.GAE_VALIDATE if self.GAE_VALIDATE else ''
         info += 'GAE Obfuscate      : %s\n' % self.GAE_OBFUSCATE if self.GAE_OBFUSCATE else ''
         if common.PAC_ENABLE:
@@ -1646,6 +1647,7 @@ class RangeFetch(object):
     threads = 1
     waitsize = 1024*512
     urlfetch = staticmethod(gae_urlfetch)
+    expect_begin = 0
 
     def __init__(self, wfile, response, method, url, headers, payload, fetchservers, password, maxsize=0, bufsize=0, waitsize=0, threads=0):
         self.wfile = wfile
@@ -1685,57 +1687,62 @@ class RangeFetch(object):
         range_queue.put((start, end, self.response))
         for begin in range(end+1, length, self.maxsize):
             range_queue.put((begin, min(begin+self.maxsize-1, length-1), None))
-        for _ in range(self.threads):
-            thread.start_new_thread(self.__fetchlet, (range_queue, data_queue))
+        thread.start_new_thread(self.__fetchlet, (range_queue, data_queue, 0))
+        t0 = time.time()
+        cur_threads = 1
         has_peek = hasattr(data_queue, 'peek')
         peek_timeout = 90
-        expect_begin = start
-        while expect_begin < length-1:
+        self.expect_begin = start
+        while self.expect_begin < length - 1:
+            while cur_threads < self.threads and time.time() - t0 > cur_threads * common.AUTORANGE_MAXSIZE / 1048576:
+                thread.start_new_thread(self.__fetchlet, (range_queue, data_queue, cur_threads * common.AUTORANGE_MAXSIZE))
+                cur_threads += 1
             try:
                 if has_peek:
                     begin, data = data_queue.peek(timeout=peek_timeout)
-                    if expect_begin == begin:
+                    if self.expect_begin == begin:
                         data_queue.get()
-                    elif expect_begin < begin:
+                    elif self.expect_begin < begin:
                         time.sleep(0.1)
                         continue
                     else:
-                        logging.error('RangeFetch Error: begin(%r) < expect_begin(%r), quit.', begin, expect_begin)
+                        logging.error('RangeFetch Error: begin(%r) < expect_begin(%r), quit.', begin, self.expect_begin)
                         break
                 else:
                     begin, data = data_queue.get(timeout=peek_timeout)
-                    if expect_begin == begin:
+                    if self.expect_begin == begin:
                         pass
-                    elif expect_begin < begin:
+                    elif self.expect_begin < begin:
                         data_queue.put((begin, data))
                         time.sleep(0.1)
                         continue
                     else:
-                        logging.error('RangeFetch Error: begin(%r) < expect_begin(%r), quit.', begin, expect_begin)
+                        logging.error('RangeFetch Error: begin(%r) < expect_begin(%r), quit.', begin, self.expect_begin)
                         break
             except Queue.Empty:
                 logging.error('data_queue peek timeout, break')
                 break
             try:
                 self.wfile.write(data)
-                expect_begin += len(data)
+                self.expect_begin += len(data)
             except Exception as e:
                 logging.info('RangeFetch client connection aborted(%s).', e)
                 break
         self._stopped = True
 
-    def __fetchlet(self, range_queue, data_queue):
+    def __fetchlet(self, range_queue, data_queue, range_delay_size):
         headers = dict((k.title(), v) for k, v in self.headers.items())
         headers['Connection'] = 'close'
         while 1:
             try:
                 if self._stopped:
                     return
-                if data_queue.qsize() * self.bufsize > 180*1024*1024:
-                    time.sleep(10)
-                    continue
                 try:
                     start, end, response = range_queue.get(timeout=1)
+                    if self.expect_begin < start and data_queue.qsize() * self.bufsize + range_delay_size > 30*1024*1024:
+                        range_queue.put((start, end, response))
+                        time.sleep(10)
+                        continue
                     headers['Range'] = 'bytes=%d-%d' % (start, end)
                     fetchserver = ''
                     if not response:
@@ -1793,6 +1800,7 @@ class RangeFetch(object):
                         response.close()
                         range_queue.put((start, end, None))
                         continue
+                    logging.info('>>>>>>>>>>>>>>> Successfully reached %d bytes.', start - 1)
                 else:
                     logging.error('RangeFetch %r return %s', self.url, response.status)
                     response.close()
@@ -1840,6 +1848,11 @@ class GAEProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
 
     @staticmethod
     def resolve_google_iplist(google_hosts):
+        def do_remote_resolve(name, dnsserver, queue):
+            try:
+                queue.put((name, dnsserver, DNSUtil.remote_resolve(dnsserver, name, timeout=2)))
+            except (socket.error, OSError) as e:
+                logging.error('resolve remote name=%r dnsserver=%r failed: %s', name, dnsserver, e)
         resolved_iplist = []
         need_resolve_remote = []
         for host in google_hosts:
@@ -1854,19 +1867,23 @@ class GAEProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                     need_resolve_remote += [host]
             except (socket.error, OSError):
                 need_resolve_remote += [host]
-        if len(resolved_iplist) < 20 or len(set(x.split('.', 1)[0] for x in resolved_iplist)) == 1:
+        if len(resolved_iplist) < 32 or len(set(x.split('.', 1)[0] for x in resolved_iplist)) == 1:
             logging.warning('local google_hosts=%s is too short, try remote_resolve', google_hosts)
             need_resolve_remote += [x for x in google_hosts if not re.match(r'\d+\.\d+\.\d+\.\d+', x)]
-        for dnsserver in ('114.114.114.114', '114.114.115.115'):
-            for host in need_resolve_remote:
+        dnsservers = ['114.114.114.114', '114.114.115.115']
+        result_queue = Queue.Queue()
+        for host in need_resolve_remote:
+            for dnsserver in dnsservers:
                 logging.debug('resolve remote host=%r from dnsserver=%r', host, dnsserver)
-                try:
-                    iplist = DNSUtil.remote_resolve(dnsserver, host, timeout=3)
-                    if iplist:
-                        resolved_iplist += iplist
-                        logging.debug('resolve remote host=%r to iplist=%s', host, iplist)
-                except (socket.error, OSError) as e:
-                    logging.exception('resolve remote host=%r dnsserver=%r failed: %s', host, dnsserver, e)
+                threading._start_new_thread(do_remote_resolve, (host, dnsserver, result_queue))
+        for _ in xrange(len(need_resolve_remote) * len(dnsservers)):
+            try:
+                name, dnsserver, iplist = result_queue.get(timeout=2)
+                resolved_iplist += iplist or []
+                logging.debug('resolve remote name=%r from dnsserver=%r return iplist=%s', name, dnsserver, iplist)
+            except Queue.Empty:
+                logging.warn('resolve remote timeout, continue')
+                break
         resolved_iplist = list(set(resolved_iplist))
         if len(resolved_iplist) == 0:
             logging.error('resolve %s host return empty! please retry!', google_hosts)
@@ -2065,7 +2082,7 @@ class GAEProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
         headers_sent = False
         fetchserver = common.GAE_FETCHSERVER
         if range_in_query and special_range:
-            fetchserver = re.sub(r'//\w+\.appspot\.com', '//%s.appspot.com' % random.choice(common.GAE_APPIDS), fetchserver)
+            fetchserver = re.sub(r'//[\w-]+\.appspot\.com', '//%s.appspot.com' % random.choice(common.GAE_APPIDS), fetchserver)
         for retry in range(common.FETCHMAX_LOCAL):
             try:
                 content_length = 0
@@ -2114,7 +2131,7 @@ class GAEProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                     http_util.crlf = 0
                     continue
                 if response.app_status == 500 and range_in_query and special_range:
-                    fetchserver = re.sub(r'//\w+\.appspot\.com', '//%s.appspot.com' % random.choice(common.GAE_APPIDS), fetchserver)
+                    fetchserver = re.sub(r'//[\w-]+\.appspot\.com', '//%s.appspot.com' % random.choice(common.GAE_APPIDS), fetchserver)
                     logging.warning('500 with range in query, trying another APPID')
                     # logging.warning('Temporary fetchserver: %s -> %s' % (common.GAE_FETCHSERVER, fetchserver))
                     # retry -= 1
@@ -2130,7 +2147,7 @@ class GAEProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
                 if not headers_sent:
                     logging.info('%s "GAE %s %s HTTP/1.1" %s %s', self.address_string(), self.command, self.path, response.status, response.getheader('Content-Length', '-'))
                     if response.status == 206:
-                        fetchservers = [re.sub(r'//\w+\.appspot\.com', '//%s.appspot.com' % appid, common.GAE_FETCHSERVER) for appid in common.GAE_APPIDS]
+                        fetchservers = [re.sub(r'//[\w-]+\.appspot\.com', '//%s.appspot.com' % appid, common.GAE_FETCHSERVER) for appid in common.GAE_APPIDS]
                         rangefetch = RangeFetch(self.wfile, response, self.command, self.path, self.headers, payload, fetchservers, common.GAE_PASSWORD, maxsize=common.AUTORANGE_MAXSIZE, bufsize=common.AUTORANGE_BUFSIZE, waitsize=common.AUTORANGE_WAITSIZE, threads=common.AUTORANGE_THREADS)
                         return rangefetch.fetch()
                     if response.getheader('Set-Cookie'):
@@ -2208,7 +2225,7 @@ class GAEProxyHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             for i in range(5):
                 try:
                     timeout = 4
-                    connection_cache_key = '*.google.com:%d' % port if host.endswith(common.GOOGLE_SITES) else ''
+                    connection_cache_key = '*.google.com:%d' % port if common.GAE_PROFILE != 'google_cn' and host.endswith(common.GOOGLE_SITES) else ''
                     remote = http_util.create_connection((host, port), timeout, cache_key=connection_cache_key)
                     if remote is not None and data:
                         remote.sendall(data)
@@ -2567,6 +2584,52 @@ class DNSServer(gevent.server.DatagramServer if gevent and hasattr(gevent.server
         return self.sendto(data[:2] + reply_data[2:], address)
 
 
+def get_process_list():
+    import os
+    import glob
+    import ctypes
+    import collections
+    Process = collections.namedtuple('Process', 'pid name exe')
+    process_list = []
+    if os.name == 'nt':
+        PROCESS_QUERY_INFORMATION = 0x0400
+        PROCESS_VM_READ = 0x0010
+        lpidProcess= (ctypes.c_ulong * 1024)()
+        cb = ctypes.sizeof(lpidProcess)
+        cbNeeded = ctypes.c_ulong()
+        ctypes.windll.psapi.EnumProcesses(ctypes.byref(lpidProcess), cb, ctypes.byref(cbNeeded))
+        nReturned = cbNeeded.value/ctypes.sizeof(ctypes.c_ulong())
+        pidProcess = [i for i in lpidProcess][:nReturned]
+        has_queryimage = hasattr(ctypes.windll.kernel32, 'QueryFullProcessImageNameA')
+        for pid in pidProcess:
+            hProcess = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid)
+            if hProcess:
+                modname = ctypes.create_string_buffer(2048)
+                count = ctypes.c_ulong(ctypes.sizeof(modname))
+                if has_queryimage:
+                    ctypes.windll.kernel32.QueryFullProcessImageNameA(hProcess, 0, ctypes.byref(modname), ctypes.byref(count))
+                else:
+                    ctypes.windll.psapi.GetModuleFileNameExA(hProcess, 0, ctypes.byref(modname), ctypes.byref(count))
+                exe = modname.value
+                name = os.path.basename(exe)
+                process_list.append(Process(pid=pid, name=name, exe=exe))
+                ctypes.windll.kernel32.CloseHandle(hProcess)
+    elif sys.platform.startswith('linux'):
+        for filename in glob.glob('/proc/[0-9]*/cmdline'):
+            pid = int(filename.split('/')[2])
+            exe_link = '/proc/%d/exe' % pid
+            if os.path.exists(exe_link):
+                exe = os.readlink(exe_link)
+                name = os.path.basename(exe)
+                process_list.append(Process(pid=pid, name=name, exe=exe))
+    else:
+        try:
+            import psutil
+            process_list = psutil.get_process_list()
+        except Exception as e:
+            logging.exception('psutil.get_process_list() failed: %r', e)
+    return process_list
+
 def pre_start():
     if sys.platform == 'cygwin':
         logging.info('cygwin is not officially supported, please continue at your own risk :)')
@@ -2592,8 +2655,8 @@ def pre_start():
                      'QQProtect': False, }
         softwares = [k for k, v in blacklist.items() if v]
         if softwares:
-            tasklist = os.popen('tasklist').read().lower()
-            softwares = [x for x in softwares if x.lower()in tasklist]
+            tasklist = '\n'.join(x.name for x in get_process_list()).lower()
+            softwares = [x for x in softwares if x.lower() in tasklist]
             if softwares:
                 title = u'GoAgent 建议'
                 error = u'某些安全软件(如 %s)可能和本软件存在冲突，造成 CPU 占用过高。\n如有此现象建议暂时退出此安全软件来继续运行GoAgent' % ','.join(softwares)
