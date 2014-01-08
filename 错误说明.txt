@@ -1,0 +1,31 @@
+﻿提示错误怎么办？
+
+
+
+
+
+一般不会有问题    结束goagent或者python的进程  重启软件就可以了
+
+
+
+
+
+Over Quota 流量超了←  点击生成Appid.cmd 再打开GoAgent+.exe(之前的进程须结束)
+
+401: Unauthorized 一般是你处于内网环境中，需要设置proxy.ini里面的proxy段落
+
+404: Not Found 一般是proxy.ini里面appid没有填对，或者服务端没有部署成功。
+
+503: Service Unavailable 一般是流量用完了，请更换appid （内附补丁）
+uploader上传失败？
+
+400: Bad Request 到http://appengine.google.com新建一个新的appid再上传。
+
+404: Not Found 对应的appid没有创建。
+
+10060 连接服务器超时，建议挂VPN后再上传
+10054 连接被重置，建议挂VPN后再上传
+
+GoAgent+弹出乱码 关闭程序再重启GoAgent+.exe
+
+
