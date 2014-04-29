@@ -13,3 +13,4 @@ smartladder
 
 支持Chrome Firefox Opera 等浏览器
 
+开源协议  GPL V2
