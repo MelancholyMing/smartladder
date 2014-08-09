@@ -5,9 +5,13 @@ __version__ = '1.0'
 
 import sys
 import os
+<<<<<<< HEAD
+import sysconfig
+=======
 import glob
+>>>>>>> origin/master
 
-sys.path += glob.glob('*.egg')
+sys.path += [os.path.abspath(os.path.join(__file__, '../packages.egg/%s' % x)) for x in ('noarch', sysconfig.get_platform().split('-')[0])]
 
 import gevent
 import gevent.server
@@ -26,10 +30,14 @@ import errno
 import thread
 import dnslib
 import Queue
+<<<<<<< HEAD
+import pygeoip
+=======
 try:
     import pygeoip
 except ImportError:
     pygeoip = None
+>>>>>>> origin/master
 
 
 is_local_addr = re.compile(r'(?i)(?:[0-9a-f:]+0:5efe:)?(?:127(?:\.\d+){3}|10(?:\.\d+){3}|192\.168(?:\.\d+){2}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d+){2})').match
@@ -250,6 +258,16 @@ class DNSServer(gevent.server.DatagramServer):
         self.dns_timeout = int(dns_timeout)
         self.dns_cache = ExpireCache(max_size=65536)
         self.dns_trust_servers = set(['8.8.8.8', '8.8.4.4', '2001:4860:4860::8888', '2001:4860:4860::8844'])
+<<<<<<< HEAD
+        for dirname in ('.', '/usr/share/GeoIP/', '/usr/local/share/GeoIP/'):
+            filename = os.path.join(dirname, 'GeoIP.dat')
+            if os.path.isfile(filename):
+                geoip = pygeoip.GeoIP(filename)
+                for dnsserver in self.dns_servers:
+                    if ':' not in dnsserver and geoip.country_name_by_addr(parse_hostport(dnsserver, 53)[0]) not in ('China',):
+                        self.dns_trust_servers.add(dnsserver)
+                break
+=======
         if pygeoip:
             for dirname in ('.', '/usr/share/GeoIP/', '/usr/local/share/GeoIP/'):
                 filename = os.path.join(dirname, 'GeoIP.dat')
@@ -259,6 +277,7 @@ class DNSServer(gevent.server.DatagramServer):
                         if ':' not in dnsserver and geoip.country_name_by_addr(parse_hostport(dnsserver, 53)[0]) not in ('China',):
                             self.dns_trust_servers.add(dnsserver)
                     break
+>>>>>>> origin/master
 
     def do_read(self):
         try:
