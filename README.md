@@ -14,8 +14,7 @@ smartladder
 支持Chrome Firefox Opera 等浏览器
 
 开源协议  GPL V2
-<<<<<<< HEAD
-=======
+
 
 捐助此项目：http://ippotsuko.com/donate
->>>>>>> origin/master
+
