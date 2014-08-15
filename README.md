@@ -1,29 +1,3 @@
-
-
-
-
-
-
-
-本repo暂时别下   请去下载打包版 http://ippotsuko.com/chrome   http://ippotsuko.com/firefox
-===================
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 smartladder
 ===========
 
